@@ -1,0 +1,41 @@
+/* oracle, tibero에서의 select query 출력 */
+SELECT MAX(ONE_ROW_QUERY) AS QUERY
+ FROM (
+     SELECT 'SELECT ' || SELECT_PHASE || CHR(10) || FROM_PHASE || CHR(10) || WHERE_PHASE AS ONE_ROW_QUERY
+       FROM (
+           SELECT LISTAGG(KK, ',') WITHIN GROUP(ORDER BY COLUMN_ID) AS SELECT_PHASE
+                , MAX(FROM_PHASE) AS FROM_PHASE
+                , LISTAGG(WHERE_VALUES, 'AND ') WITHIN GROUP(ORDER BY COLUMN_ID) AS WHERE_PHASE
+             FROM (
+                 SELECT ' ' || RPAD(COLUMN_NAME, 30, ' ') || '-- ' || COMMENTS || CHR(10) || ' ' AS KK, TABLE_NAME, COLUMN_ID
+                      , ' FROM ' || RPAD(UPPER(${tableNm}), 30, ' ') || '-- ' || TABLE_COMM AS FROM_PHASE
+                      , CASE WHEN COL_NM IS NULL THEN ''
+                             ELSE (
+                                 CASE WHEN COL_NM = 'SYS_ID' THEN ' WHERE ' ELSE '' END || RPAD(COL_NM, 20, ' ') || ' ' || CHR(61) || ' ' || CHR(35)
+                                 || CASE WHEN COL_NM = 'SYS_ID' THEN '{g.tenant}' ELSE '{p.' || LOWER(COL_NM) || '}' END || CHR(10) || ' '
+                                 )
+                                 END AS WHERE_VALUES
+                   FROM (
+                       SELECT A.TABLE_NAME, A.COLUMN_NAME, A.COLUMN_ID, B.COMMENTS, C.COMMENTS AS TABLE_COMM, D.COL_NM
+                         FROM USER_TAB_COLS A
+                   INNER JOIN USER_COL_COMMENTS B
+                           ON A.TABLE_NAME = B.TABLE_NAME
+                          AND A.COLUMN_NAME = B.COLUMN_NAME
+                   INNER JOIN USER_TAB_COMMENTS C
+                           ON A.TABLE_NAME = C.TABLE_NAME
+              LEFT OUTER JOIN (
+                                SELECT MAX(Y.COLUMN_NAME) AS COL_NM
+                                  FROM USER_CONSTRAINTS X
+                            INNER JOIN USER_CONS_COLUMNS Y
+                                    ON X.TABLE_NAME = Y.TABLE_NAME
+                                   AND X.CONSTRAINT_NAME = Y.CONSTRAINT_NAME
+                                 WHERE X.TABLE_NAME = UPPER(${tableNm})
+                              GROUP BY Y.COLUMN_NAME
+                              ) D
+                          ON A.COLUMN_NAME = D.COL_NM
+                       WHERE A.TABLE_NAME = UPPER(${tableNm})
+                        )
+                )
+         GROUP BY TABLE_NAME
+        )
+    )
