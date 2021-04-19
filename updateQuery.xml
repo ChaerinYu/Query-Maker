@@ -1,0 +1,43 @@
+SELECT MAX(ONE_ROW_QUERY) AS QUERY
+  FROM (
+        SELECT 'UPDATE ' || UPPER(#{tableNm}) || CHR(10) || ' SET' || CHR(10) || UPDATE_COLS_PHASE || CHR(10) || WHERE_PHASE AS ONE_ROW_QUERY
+          FROM (
+                SELECT LISTAGG(COL_VALUES, ',') WITHIN GROUP(ORDER BY COLUMN_ID) AS UPDATE_COLS_PHASE
+                     , LISTAGG(WHERE_VALUES, 'AND ') WITHIN GROUP(ORDER BY COLUMN_ID) AS WHERE_PHASE
+                  FROM (
+                        SELECT A.TABLE_NAME, A.COLUMN_ID
+                             , CASE WHEN A.COLUMN_NAME='SYS_ID' THEN ' ' ELSE '' END
+                                || RPAD(A.COLUMN_NAME, 30, ' ') || CHR(61)
+                                -- 특정 필드에 대하여 특정 value가 정해진 경우 WHEN 추가하여 수정
+                                || CASE WHEN A.COLUMN_NAME = 'SYS_ID' THEN RPAD(CHR(35) || '{g.tenant}', 30, ' ') || '-- ' || B.COMMENTS || CHR(10) || ' '
+                                    WHEN A.COLUMN_NAME IN ('MOD_ID', 'REG_ID') THEN RPAD(CHR(35) || '{g.username}', 30, ' ') || '-- ' || B.COMMENTS || CHR(10) || ' '
+                                    WHEN A.COLUMN_NAME IN ('MOD_DT', 'REG_DT') THEN RPAD(CHR(35) || '{g.now}', 30, ' ') || '-- ' || B.COMMENTS || CHR(10)|| ' '
+                                    ELSE RPAD(CHR(35) || '{p.' || LOWER(A.COLUMN_NAME) || '}', 30, ' ') || '-- ' || B.COMMENTS || CHR(10)|| ' ' END AS COL_VALUES
+                            -- primary key where 조건으로 걸기 위한 서브쿼리 테이블
+                             , CASE WHEN C.COL_NM IS NULL THEN ''
+                                    ELSE
+                                        (
+                                        CASE WHEN C.COL_NM = 'SYS_ID' THEN ' WHERE ' ELSE '' END || RPAD(C.COL_NM, 20, ' ') || ' ' || CHR(61) || ' ' || CHR(35)
+                                        || CASE WHEN C.COL_NM = 'SYS_ID' THEN '{g.tenant}' ELSE '{p.' || LOWER(C.COL_NM) || '}' END || CHR(10) || ' '
+                                        )
+                                        END AS WHERE_VALUES
+                         
+                          FROM USER_TAB_COLS A
+                         INNER JOIN USER_COL_COMMENTS B
+                            ON A.TABLE_NAME = B.TABLE_NAME
+                           AND A.COLUMN_NAME = B.COLUMN_NAME
+                          LEFT OUTER JOIN (
+                                        SELECT MAX(Y.COLUMN_NAME) AS COL_NM
+                                          FROM USER_CONSTRAINTS X
+                                         INNER JOIN USER_CONS_COLUMNS Y
+                                            ON X.TABLE_NAME = Y.TABLE_NAME
+                                           AND X.CONSTRAINT_NAME = Y.CONSTRAINT_NAME
+                                         WHERE X.TABLE_NAME = UPPER(#{tableNm})
+                                      GROUP BY Y.COLUMN_NAME
+                                        ) C
+                            ON A.COLUMN_NAME = C.COL_NM
+                         WHERE A.TABLE_NAME = UPPER(#{tableNm})
+                        )
+              GROUP BY TABLE_NAME
+                )
+        )
