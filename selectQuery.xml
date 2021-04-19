@@ -11,6 +11,12 @@ SELECT MAX(ONE_ROW_QUERY) AS QUERY
                       , ' FROM ' || RPAD(UPPER(${tableNm}), 30, ' ') || '-- ' || TABLE_COMM AS FROM_PHASE
                       , CASE WHEN COL_NM IS NULL THEN ''
                              ELSE (
+                               -- 테이블 첫 번째 필드를 SYS_ID 이라 가정하여 WHERE 맨 처음 조건에 위치 
+                               -- RPAD 를 사용하여 쿼리 줄 정리하여 깔끔하게 보이기 위함
+                               -- CHR(35): #, CHR(61): =, CHR(10): \n
+                               -- ex. WHERE SYS_ID = #{g.tenant}
+                               --       AND primarykey 조건
+                               --          .... 
                                  CASE WHEN COL_NM = 'SYS_ID' THEN ' WHERE ' ELSE '' END || RPAD(COL_NM, 20, ' ') || ' ' || CHR(61) || ' ' || CHR(35)
                                  || CASE WHEN COL_NM = 'SYS_ID' THEN '{g.tenant}' ELSE '{p.' || LOWER(COL_NM) || '}' END || CHR(10) || ' '
                                  )
@@ -23,6 +29,7 @@ SELECT MAX(ONE_ROW_QUERY) AS QUERY
                           AND A.COLUMN_NAME = B.COLUMN_NAME
                    INNER JOIN USER_TAB_COMMENTS C
                            ON A.TABLE_NAME = C.TABLE_NAME
+                    -- primary key where 조건으로 걸기 위한 서브쿼리 테이블
               LEFT OUTER JOIN (
                                 SELECT MAX(Y.COLUMN_NAME) AS COL_NM
                                   FROM USER_CONSTRAINTS X
