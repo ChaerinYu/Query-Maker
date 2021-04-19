@@ -1,0 +1,25 @@
+SELECT MAX(ONE_ROW_QUERY) AS QUERY
+  FROM (
+        SELECT 'INSERT INTO ' || TABLE_NAME || ' (' || CHR(10)
+            || WM_CONCAT(COLUMN_NAMES) OVER(PARTITION BY TABLE_NAME ORDER BY COLUMN_ID)
+            || ') ' || CHR(10) || ' ' || 'VALUES (' || CHR(10)
+            || WM_CONCAT(COL_VALUES) OVER(PARTITION BY TABLE_NAME ORDER BY COLUMN_ID)
+            || ') ' AS ONE_ROW_QUERY
+          FROM (
+                SELECT A.TABLE_NAME, A.COLUMN_ID
+                    -- 첫 번째 필드 일 때와 아닐 때
+                     , CASE WHEN A.COLUMN_ID = 0 THEN ' ' || RPAD(A.COLUMN_NAME, 30, ' ') || '-- ' || B.COMMENTS || CHR(10) || ' '
+                            ELSE RPAD(A.COLUMN_NAME, 30, ' ') || '-- ' || B.COMMENTS || CHR(10) || ' '
+                        END AS COLUMN_NAMES
+                    -- 특정 필드에 대하여 특정 insert value가 정해진 경우 WHEN 추가하여 수정
+                     , CASE WHEN A.COLUMN_NAME = 'SYS_ID' THEN ' ' || CHR(35) || '{g.tenant}' || CHR(10) || ' '
+                            WHEN A.COLUMN_NAME IN ('MOD_ID', 'REG_ID') THEN CHR(35) || '{g.username}' || CHR(10) || ' '
+                            WHEN A.COLUMN_NAME IN ('MOD_DT', 'REG_DT') THEN CHR(35) || '{g.now}' || CHR(10) || ' '
+                            ELSE CHR(35) || '{p.' || LOWER(A.COLUMN_NAME) || '}' || CHR(10) || ' ' END AS COL_VALUES
+                  FROM USER_TAB_COLS A
+                 INNER JOIN USER_COL_COMMENTS B
+                    ON A.TABLE_NAME = B.TABLE_NAME
+                   AND A.COLUMN_NAME = B.COLUMN_NAME
+                 WHERE A.TABLE_NAME = UPPER(#{tableNm})
+                )
+        )
