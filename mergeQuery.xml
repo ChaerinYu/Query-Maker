@@ -1,0 +1,69 @@
+SELECT MAX(ONE_ROW_QUERY) AS QUERY
+  FROM (
+        SELECT 'MERGE INTO ' || UPPER(#{tableNm}) || ' A' || CHR(10) || 'USING (' || CHR(10)
+            || 'SELECT ' || SELECT_PHASE || CHR(10) || FROM_PHASE || CHR(10)
+            || ') B' || CHR(10) || 'ON (' || CHR(10) || WHERE_PHASE || ')' || CHR(10) || 'WHEN MATCHED THEN' || CHR(10)
+            || 'UPDATE SET' || CHR(10) || UPDATE_SET_PHASE || CHR(10) || 'WHEN NOT MATCHED THEN' || CHR(10)
+            || 'INSERT (' || CHR(10) || INSERT_COL_PHASE || CHR(10) || ')' || CHR(10) || 'VALUES ' || CHR(10) || '(' || CHR(10) || VALUE_PHASE || CHR(10) || ')'
+                AS ONE_ROW_QUERY
+         
+          FROM (
+                SELECT LISTAGG(KK, ',') WITHIN GROUP(ORDER BY COLUMN_ID) AS SELECT_PHASE
+                     , MAX(FROM_PHASE) AS FROM_PHASE
+                     , LISTAGG(WHERE_VALUES, 'AND ') WITHIN GROUP(ORDER BY COLUMN_ID) AS WHERE_PHASE
+                     , LISTAGG(UPDATE_SET_PHASE, ', ') WITHIN GROUP(ORDER BY COLUMN_ID) AS UPDATE_SET_PHASE
+                     , LISTAGG(COLUMN_NAMES, ',') WITHIN GROUP(ORDER BY COLUMN_ID) AS INSERT_COL_PHASE
+                     , LISTAGG(COL_VALUES, ',') WITHIN GROUP(ORDER BY COLUMN_ID) AS VALUE_PHASE
+                  FROM (
+                      -- SYS_ID 가 테이블 첫 번째 필드라고 가정
+                      -- merge into ~~ 구문
+                        SELECT CASE WHEN COLUMN_NAME = 'SYS_ID' THEN ' ' || RPAD(CHR(35) || '{g.tenant}', 30, ' ') || CHR(10) || ' '
+                                    WHEN COLUMN_NAME IN ('STS', 'REG_ID', 'REG_DT', 'MOD_ID', 'MOD_DT') THEN NULL
+                                    ELSE ' ' || RPAD(CHR(35) || '{p.' || LOWER(COLUMN_NAME) || '}', 30, ' ') || '-- ' || COMMENTS || CHR(10) || ' '
+                                     END AS KK
+                             , TABLE_NAME, COLUMN_ID
+                             , ' FROM ' || RPAD('DUAL', 30, ' ') AS FROM_PHASE
+                             , CASE WHEN COL_NM IS NULL THEN ''
+                                    ELSE
+                                        (
+                                        CASE WHEN COL_NM = 'SYS_ID' THEN ' ' || RPAD('A.' || COL_NM, 20, ' ') || ' ' || CHR(61) || ' ' || CHR(35) || '{g.tenant}'
+                                        ELSE RPAD('A.' || COL_NM, 20, ' ') || ' ' || CHR(61) || ' B.' || COL_NM END || CHR(10) || ' '
+                                        )
+                                     END AS WHERE_VALUES
+                            -- 등록일/등록자는 update 안함
+                             , CASE WHEN COL_NM IS NOT NULL THEN ''
+                                    WHEN COLUMN_NAME IN ('REG_ID', 'REG_DT') THEN ''
+                                    WHEN COLUMN_NAME = 'MOD_ID' THEN RPAD('A.' || COLUMN_NAME, 20, ' ') || CHR(61) || ' ' || CHR(35) || '{g.username}' || CHR(10) || ' '
+                                    WHEN COLUMN_NAME = 'MOD_DT' THEN RPAD('A.' || COLUMN_NAME, 20, ' ') || CHR(61) || ' ' || CHR(35) || '{g.now}' || CHR(10) || ' '
+                                    ELSE RPAD('A.' || COLUMN_NAME, 20, ' ') || CHR(61) || ' B.' || COLUMN_NAME || CHR(10) || ' ' END AS UPDATE_SET_PHASE
+                            -- match되는 데이터 없는 경우 insert
+                             , CASE WHEN COLUMN_ID = 0 THEN ' ' || RPAD(COLUMN_NAME, 30, ' ') || '-- ' || COMMENTS || CHR(10) || ' '
+                                    ELSE RPAD(COLUMN_NAME, 30, ' ') || '-- ' || COMMENTS || CHR(10) || ' ' END AS COLUMN_NAMES
+                             , CASE WHEN COLUMN_NAME = 'SYS_ID' THEN ' ' || CHR(35) || '{g.tenant}' || CHR(10) || ' '
+                                    WHEN COLUMN_NAME IN ('MOD_ID', 'REG_ID') THEN CHR(35) || '{g.username}' || CHR(10) || ' '
+                                    WHEN COLUMN_NAME IN ('MOD_DT', 'REG_DT') THEN CHR(35) || '{g.now}' || CHR(10) || ' '
+                                    ELSE CHR(35) || '{p.' || LOWER(COLUMN_NAME) || '}' || CHR(10) || ' ' END AS COL_VALUES
+                          FROM (
+                                SELECT A.TABLE_NAME, A.COLUMN_NAME, A.COLUMN_ID, B.COMMENTS, C.COMMENTS AS TABLE_COMM, D.COL_NM
+                                  FROM USER_TAB_COLS A
+                                 INNER JOIN USER_COL_COMMENTS B
+                                    ON A.TABLE_NAME = B.TABLE_NAME
+                                   AND A.COLUMN_NAME = B.COLUMN_NAME
+                                 INNER JOIN USER_TAB_COMMENTS C
+                                    ON A.TABLE_NAME = C.TABLE_NAME
+                                  LEFT OUTER JOIN (
+                                                    SELECT MAX(Y.COLUMN_NAME) AS COL_NM
+                                                      FROM USER_CONSTRAINTS X
+                                                     INNER JOIN USER_CONS_COLUMNS Y
+                                                        ON X.TABLE_NAME = Y.TABLE_NAME
+                                                       AND X.CONSTRAINT_NAME = Y.CONSTRAINT_NAME
+                                                     WHERE X.TABLE_NAME = UPPER(#{tableNm})
+                                                     GROUP BY Y.COLUMN_NAME
+                                                  ) D
+                                    ON A.COLUMN_NAME = D.COL_NM
+                                 WHERE A.TABLE_NAME = UPPER(#{tableNm})
+                               )
+                        )
+                 GROUP BY TABLE_NAME
+              )
+        )
